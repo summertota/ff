@@ -2,8 +2,11 @@
 <p align="center">
   <a href="./README.md">English Version</a> | <b>简体中文</b>
 </p>
+
 ---
+
 ## ~/.zshrc 刺客fuck机
+
 
 ```bash
 fuck!

@@ -2,7 +2,9 @@
 <p align="center">
   <b>English</b> | <a href="./README_CN.MD">简体中文说明</a>
 </p>
+
 ---
+
 `ff` is a zero-dependency, ultra-lightweight, and lightning-fast **local time machine** built for developers who suffer from fat-finger mistakes (`rm -rf`, wrong config overwrites). 
 
 By leveraging native **Git orchestration** under the hood, `ff` provides a loopable, lossless `Ctrl + Z` undo experience right inside your terminal, without wasting disk space or cluttering your project folder with `.git` dotfiles.
