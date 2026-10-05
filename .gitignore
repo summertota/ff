@@ -1,0 +1,13 @@
+# macOS system files
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Local test database (if you accidentally copy it inside the repo)
+.ff_core/
+/tmp/ff_*
+
+# Development leftovers
+*.log
+*.tmp
+

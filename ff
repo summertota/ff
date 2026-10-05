@@ -1,0 +1,260 @@
+#!/usr/bin/env bash
+
+# ==============================================================================
+# 时间机器：ff 核心 CLI 引擎 (~/.zshrc刺客防御 - macOS 版)
+# ==============================================================================
+FF_DIR="$HOME/.ff_core"
+
+_ff_init() {
+    if [ ! -d "$FF_DIR" ]; then
+        mkdir -p "$FF_DIR" && cd "$FF_DIR" || exit 1
+        git init --quiet
+        git config user.name "FF Agent" && git config user.email "ff@geek.local"
+        touch .init && git add .init && git commit -m "init" --quiet
+    fi
+}
+
+_get_abs_path() {
+    python3 -c "import os, sys; print(os.path.abspath(sys.argv[-1]))" "$1"
+}
+
+_ff_key() {
+    local abs; abs=$(_get_abs_path "$1")
+    echo "${abs//\//__}"
+}
+
+_reverse_key() {
+    local key="$1"
+    local clean_key="${key%__dir_marker}"
+    local decoded="${clean_key//__//}"
+    echo "$decoded"
+}
+
+_ff_init
+
+INVOKED_CMD=$(basename "$0")
+
+# 1. 严格限制动作和初始参数提取
+if [[ "$INVOKED_CMD" == "hold" || "$INVOKED_CMD" == "fuck" || "$INVOKED_CMD" == "log" ]]; then
+    ACTION="$INVOKED_CMD"
+    RAW_TARGETS=("$@")
+else
+    ACTION="$1"
+    shift 1
+    RAW_TARGETS=("$@")
+fi
+
+# 2. 统一处理全局管理指令 list 和 clear
+if [[ "$ACTION" == "list" ]]; then
+    echo "📋 [Time Machine Protected List]"
+    cd "$FF_DIR" || exit 1
+    local_files=$(git ls-files | grep "^__")
+    if [ -z "$local_files" ]; then
+        echo "  (No items under protection yet.)"
+    else
+        echo "$local_files" | sed -E 's/__(.[^_]*)$//' | sort -u | while read -r base_key; do
+            if [[ "$base_key" == *__dir_marker ]]; then
+                orig_path=$(_reverse_key "$base_key")
+                if [ -d "$orig_path" ]; then echo "  🟢 [DIR]  $orig_path"; else echo "  🔴 [DIR]  $orig_path (Deleted)"; fi
+            else
+                orig_path=$(echo "$base_key" | sed 's/__/\//g')
+                if [ -f "$orig_path" ]; then echo "  🟢 [FILE] $orig_path"; elif [ ! -d "$orig_path" ]; then echo "  🔴 [FILE] $orig_path (Deleted)"; fi
+            fi
+        done | sort -u
+    fi
+    exit 0
+fi
+
+if [[ "$ACTION" == "clear" ]]; then
+    echo -n "⚠️  Are you sure you want to WIPEOUT all time machine histories? (y/N): "
+    read -r confirm
+    if [[ "$confirm" == [yY] || "$confirm" == [yY][eE][sS] ]]; then
+        rm -rf "$FF_DIR"
+        echo "🧹 [Cleared] All historical states have been deleted."
+    else
+        echo "🛑 Cancelled."
+    fi
+    exit 0
+fi
+
+# 3. 参数重组：剥离 @版本号
+VERSION_TAG=""
+TARGETS=()
+
+for ARG in "${RAW_TARGETS[@]}"; do
+    if [[ "$ARG" == @* ]]; then
+        VERSION_TAG="${ARG#@}"
+    else
+        TARGETS+=("$ARG")
+    fi
+done
+
+if [[ -z "$ACTION" || ${#TARGETS[@]} -eq 0 ]]; then
+    echo "💡 Usage:"
+    echo "  hold <file_or_dir>      - Take a snapshot of current state"
+    echo "  fuck <file_or_dir>      - Undo/Revert back to previous state (Cycle safely)"
+    echo "  fuck <file_or_dir> @2   - Jump directly to a specific older version"
+    echo "  ff log <file_or_dir>    - Peek into the timeline and version numbers"
+    echo "  ff list / clear         - List tracked items / Wipeout everything"
+    exit 1
+fi
+
+case "$ACTION" in
+    "log")
+        ITEM="${TARGETS}"
+        ABS_PATH=$(_get_abs_path "$ITEM")
+        KEY=$(_ff_key "$ITEM")
+        
+        cd "$FF_DIR" || exit 1
+        GIT_TARGET="$KEY"
+        if [ -d "$FF_DIR/${KEY}__dir_marker_content" ] || [ -f "$FF_DIR/${KEY}__dir_marker" ]; then
+            GIT_TARGET="${KEY}__dir_marker_content"
+        fi
+
+        all_holds=$(git log --follow --oneline --format="%h|%cr" -- "$GIT_TARGET" 2>/dev/null)
+        hold_count=$(echo "$all_holds" | grep -c "^")
+        
+        if [ "$hold_count" -le 0 ]; then
+            echo "ℹ️  No history found for '$ITEM'."
+        else
+            # 核心修复：用 contents:subject 提取 Tag 标签信息、Python 完美修剪
+            CURRENT_TIMELINE_INDEX=""
+            if git rev-parse "${KEY}_cur" >/dev/null 2>&1; then
+                raw_tag_msg=$(git tag -l --format='%(contents:subject)' "${KEY}_cur")
+                CURRENT_TIMELINE_INDEX=$(python3 -c "import sys; print(sys.argv[-1].strip())" "$raw_tag_msg")
+            fi
+
+            echo "⏳ [History Timeline for: $ITEM]"
+            count=1
+            echo "$all_holds" | tail -r | while IFS='|' read -r commit_id rel_time; do
+                STATUS_STR=""
+                
+                # 判定条件确保完全一致
+                if [[ -n "$CURRENT_TIMELINE_INDEX" && "$count" -eq "$CURRENT_TIMELINE_INDEX" ]]; then
+                    STATUS_STR=" 👉 CURRENT TIMELINE"
+                elif [[ -z "$CURRENT_TIMELINE_INDEX" && "$count" -eq "$hold_count" ]]; then
+                    STATUS_STR=" 🎯 [CURRENT LATEST]"
+                elif [[ "$count" -eq "$hold_count" ]]; then
+                    STATUS_STR=" (LATEST BACKUP)"
+                fi
+
+                echo "  @$count -> Commit: $commit_id ($rel_time)$STATUS_STR"
+                ((count++))
+            done
+            echo "💡 Tip: Use 'fuck $ITEM' to step backward, or 'fuck $ITEM @id' to warp space-time!"
+        fi
+        ;;
+
+    "hold")
+        for ITEM in "${TARGETS[@]}"; do
+            if [ ! -e "$ITEM" ]; then echo "❌ Error: '$ITEM' does not exist."; continue; fi
+            ABS_PATH=$(_get_abs_path "$ITEM")
+            KEY=$(_ff_key "$ITEM")
+            
+            if [ -d "$ABS_PATH" ]; then
+                DIR_KEY="${KEY}__dir_marker"
+                touch "$FF_DIR/$DIR_KEY"
+                rm -rf "$FF_DIR/${DIR_KEY}_content" && mkdir -p "$FF_DIR/${DIR_KEY}_content"
+                cp -R "$ABS_PATH/" "$FF_DIR/${DIR_KEY}_content/" 2>/dev/null
+                cd "$FF_DIR" && git add "$DIR_KEY" "${DIR_KEY}_content"
+            else
+                cp "$ABS_PATH" "$FF_DIR/$KEY"
+                cd "$FF_DIR" && git add "$KEY"
+            fi
+            
+            cd "$FF_DIR"
+            if ! git diff --cached --quiet; then
+                git commit -m "hold: $ABS_PATH" --quiet
+                git tag -d "${KEY}_cur" >/dev/null 2>&1
+                echo "⚡ [Hold] Secured: $ITEM"
+            else
+                echo "ℹ️  No changes: $ITEM"
+            fi
+        done
+        ;;
+
+    "fuck")
+        for ITEM in "${TARGETS[@]}"; do
+            ABS_PATH=$(_get_abs_path "$ITEM")
+            KEY=$(_ff_key "$ITEM")
+            DIR_KEY="${KEY}__dir_marker"
+            
+            cd "$FF_DIR" || exit 1
+            
+            GIT_TARGET="$KEY"
+            if [ -d "$FF_DIR/${DIR_KEY}_content" ] || [ -f "$FF_DIR/$DIR_KEY" ]; then
+                GIT_TARGET="${DIR_KEY}_content"
+            fi
+
+            all_holds=$(git log --follow --format="%h" -- "$GIT_TARGET" 2>/dev/null | tail -r)
+            hold_count=$(echo "$all_holds" | grep -c "^")
+
+            if [ "$hold_count" -le 0 ]; then
+                echo "❌ Error: '$ITEM' was never held before."
+                continue
+            fi
+
+            _get_commit_by_index() {
+                local idx="$1"
+                echo "$all_holds" | python3 -c "import sys; lines=[l.strip() for l in sys.stdin if l.strip()]; idx=int(sys.argv[-1])-1; print(lines[idx] if 0 <= idx < len(lines) else '')" "$idx"
+            }
+
+            if [[ -n "$VERSION_TAG" ]]; then
+                # 1. 精准空降模式
+                TARGET_COMMIT=$(_get_commit_by_index "$VERSION_TAG")
+                if [ -z "$TARGET_COMMIT" ]; then
+                    echo "❌ Error: Version '@$VERSION_TAG' not found. Run 'ff log $ITEM' to check available versions."
+                    continue
+                fi
+                git tag -d "${KEY}_cur" >/dev/null 2>&1
+                git tag -a "${KEY}_cur" -m "$VERSION_TAG" "$TARGET_COMMIT" >/dev/null 2>&1
+                MSG="💥 [Fucked] Precision jump successful! Restored to version @$VERSION_TAG."
+            else
+                # 2. 盲猜撤销模式
+                if git rev-parse "${KEY}_cur" >/dev/null 2>&1; then
+                    raw_tag_msg=$(git tag -l --format='%(contents:subject)' "${KEY}_cur")
+                    CURRENT_INDEX=$(python3 -c "import sys; print(sys.argv[-1].strip())" "$raw_tag_msg")
+                    if [ -z "$CURRENT_INDEX" ] || [ "$CURRENT_INDEX" -le 1 ]; then
+                        NEW_INDEX="$hold_count"
+                    else
+                        NEW_INDEX=$((CURRENT_INDEX - 1))
+                    fi
+                else
+                    if [ "$hold_count" -gt 1 ]; then
+                        NEW_INDEX=$((hold_count - 1))
+                    else
+                        NEW_INDEX="$hold_count"
+                    fi
+                fi
+
+                TARGET_COMMIT=$(_get_commit_by_index "$NEW_INDEX")
+                git tag -d "${KEY}_cur" >/dev/null 2>&1
+                git tag -a "${KEY}_cur" -m "$NEW_INDEX" "$TARGET_COMMIT" >/dev/null 2>&1
+                
+                if [ "$NEW_INDEX" -eq "$hold_count" ]; then
+                    git tag -d "${KEY}_cur" >/dev/null 2>&1
+                    MSG="💫 [Looping] Space-time loop reset! Reverted to the LATEST state."
+                else
+                    MSG="💥 [Fucked] Reverted back to the PREVIOUS historical state! (Version @$NEW_INDEX)"
+                fi
+            fi
+
+            # 3. 统一执行物理覆盖动作
+            if [ "$GIT_TARGET" == "${DIR_KEY}_content" ]; then
+                mkdir -p "$ABS_PATH"
+                rm -rf "${ABS_PATH:?}/"* 2>/dev/null
+                tmp_checkout_dir="/tmp/ff_out_$$" && mkdir -p "$tmp_checkout_dir"
+                git archive "$TARGET_COMMIT" "$GIT_TARGET" 2>/dev/null | tar -x -C "$tmp_checkout_dir" 2>/dev/null
+                cp -R "$tmp_checkout_dir/$GIT_TARGET/"* "$ABS_PATH/" 2>/dev/null
+                rm -rf "$tmp_checkout_dir"
+            else
+                git show "$TARGET_COMMIT:$KEY" > "$ABS_PATH" 2>/dev/null
+                cp "$ABS_PATH" "$FF_DIR/$KEY"
+            fi
+
+            git reset --mixed HEAD >/dev/null 2>&1
+            echo "$MSG"
+        done
+        ;;
+esac
+
