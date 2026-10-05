@@ -2,20 +2,16 @@
 <p align="center">
   <a href="./README.md">English Version</a> | <b>简体中文</b>
 </p>
-	  ~/.zshrc 刺客fuck机
-	  ```bash
-	  
-	  fuck!
+---
+## ~/.zshrc 刺客fuck机
 
-	  ```
+```bash
+fuck!
+```
 
 `ff` 是一款**零依赖、超轻量且速度极快**的**本地单文件/文件夹时光机**。它专门为了拯救那些饱受误操作（如 `rm -rf`、改错系统配置、失手覆盖代码）折磨的开发者而生。
 
 通过在底层精妙地编排**原生 Git 的图存储能力**，`ff` 在你的终端里实现了像 `Ctrl + Z` 一样可无限无损连续回退的“撤销”体验。它完全隐蔽在后台，不会在你的工作项目目录里留下任何恶心的 `.git` 污染，也绝不浪费一丝磁盘空间。
-
-<p align="center">
-  <a href="./README.md">English Version</a> | <b>简体中文</b>
-</p>
 
 ---
 
