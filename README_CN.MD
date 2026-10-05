@@ -1,4 +1,13 @@
 # ⚡ ff (Hold & Fuck) — 专为手残党打造的终极极客命令行时光机
+<p align="center">
+  <a href="./README.md">English Version</a> | <b>简体中文</b>
+</p>
+	  ~/.zshrc 刺客fuck机
+	  ```bash
+	  
+	  fuck!
+
+	  ```
 
 `ff` 是一款**零依赖、超轻量且速度极快**的**本地单文件/文件夹时光机**。它专门为了拯救那些饱受误操作（如 `rm -rf`、改错系统配置、失手覆盖代码）折磨的开发者而生。
 
